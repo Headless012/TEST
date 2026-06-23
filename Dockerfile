@@ -1,7 +1,8 @@
 FROM node:20
 
-# Installa dipendenze di sistema per Playwright/Chromium
+# Installa XVFB + dipendenze grafiche
 RUN apt-get update && apt-get install -y \
+    xvfb \
     libnss3 \
     libatk-bridge2.0-0 \
     libdrm2 \
@@ -16,13 +17,11 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 COPY package*.json ./
-
-# Usa npm install invece di npm ci (più tollerante)
 RUN npm install --omit=dev
 
-# Installa Chromium per Playwright
 RUN npx playwright install --with-deps chromium
 
 COPY . .
 
-CMD ["npm", "start"]
+# Avvia con XVFB
+CMD ["xvfb-run", "-a", "node", "index.js"]
