@@ -74,7 +74,7 @@ client.on('messageCreate', async message => {
 
 async function automateFreebeat(prompt, durationSeconds, originalMessage, imagePath = null, isVertical = false) {
   const browser = await chromium.launch({ 
-    headless: true,
+    headless: false,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
