@@ -1,6 +1,6 @@
-FROM node:20-slim
+FROM node:20
 
-# Installa dipendenze per Chromium
+# Installa dipendenze di sistema per Playwright/Chromium
 RUN apt-get update && apt-get install -y \
     libnss3 \
     libatk-bridge2.0-0 \
@@ -16,9 +16,11 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --omit=dev
 
-# Installa Playwright + Chromium
+# Usa npm install invece di npm ci (più tollerante)
+RUN npm install --omit=dev
+
+# Installa Chromium per Playwright
 RUN npx playwright install --with-deps chromium
 
 COPY . .
