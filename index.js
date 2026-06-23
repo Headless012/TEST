@@ -20,7 +20,7 @@ const client = new Client({
 const activeGenerations = new Set();
 
 client.once('ready', () => {
-  console.log(`✅ Bot avviato come ${client.user.tag} - Max 3 gen + immagine + verticale`);
+  console.log(`✅ Bot avviato come ${client.user.tag} - 24/7 su Render`);
 });
 
 client.on('messageCreate', async message => {
@@ -28,7 +28,7 @@ client.on('messageCreate', async message => {
   if (!message.content.startsWith('!generate')) return;
 
   if (activeGenerations.size >= 3) {
-    return message.reply('⚠️ Sono già in corso 3 generazioni. Attendi.');
+    return message.reply('⚠️ Sono già in corso 3 generazioni. Attendi che una finisca.');
   }
 
   const fullText = message.content.slice(10).trim();
@@ -41,9 +41,11 @@ client.on('messageCreate', async message => {
     prompt = prompt.replace(/vertical/i, '').trim();
   }
 
-  if (!prompt) return message.reply('❌ Usa: `!generate il tuo prompt qui 10s` (aggiungi "vertical" per 9:16)');
+  if (!prompt) {
+    return message.reply('❌ Usa: `!generate il tuo prompt qui 10s` (aggiungi "vertical" per 9:16)');
+  }
 
-  // Immagine allegata
+  // Gestione immagine allegata
   let imagePath = null;
   if (message.attachments.size > 0) {
     const attachment = message.attachments.first();
@@ -53,9 +55,10 @@ client.on('messageCreate', async message => {
         const response = await fetch(attachment.url);
         const buffer = await response.arrayBuffer();
         fs.writeFileSync(imagePath, Buffer.from(buffer));
-        console.log(`📸 Immagine salvata`);
+        console.log(`📸 Immagine allegata salvata`);
       } catch (err) {
-        console.error('Errore immagine:', err);
+        console.error('Errore download immagine:', err);
+        imagePath = null;
       }
     }
   }
@@ -63,25 +66,30 @@ client.on('messageCreate', async message => {
   activeGenerations.add(message.id);
   await message.reply(`⏳ Generazione avviata per **"${prompt}"** (${duration}s)${isVertical ? ' 📱 Verticale (9:16)' : ''}...`);
 
-  automateFreebeat(prompt, duration, message, imagePath, isVertical).finally(() => {
-    activeGenerations.delete(message.id);
-    if (imagePath && fs.existsSync(imagePath)) fs.unlinkSync(imagePath);
-  }).catch(err => {
-    console.error(err);
-    message.reply('❌ Errore durante la generazione.').catch(() => {});
-  });
+  automateFreebeat(prompt, duration, message, imagePath, isVertical)
+    .finally(() => {
+      activeGenerations.delete(message.id);
+      if (imagePath && fs.existsSync(imagePath)) fs.unlinkSync(imagePath).catch(() => {});
+    })
+    .catch(err => {
+      console.error(err);
+      message.reply('❌ Errore durante la generazione: ' + err.message).catch(() => {});
+    });
 });
 
 async function automateFreebeat(prompt, durationSeconds, originalMessage, imagePath = null, isVertical = false) {
-  const browser = await chromium.launch({ 
-    headless: false,
+  const browser = await chromium.launch({
+    headless: true,   // OBBLIGATORIO su Render
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-blink-features=AutomationControlled',
-      '--window-position=-3000,-3000',
-      '--window-size=800,600',
-      '--mute-audio'
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--mute-audio',
+      '--no-first-run',
+      '--no-zygote',
+      '--single-process'
     ]
   });
 
@@ -97,13 +105,15 @@ async function automateFreebeat(prompt, durationSeconds, originalMessage, imageP
   });
 
   try {
+    // === TEMP MAIL ===
     const mailPage = await context.newPage();
     const tempEmail = await createTempMail(mailPage);
 
+    // === FREEBEAT ===
     const freebeatPage = await context.newPage();
-    await freebeatPage.goto('https://freebeat.ai/it/ai-video-generator?model=seedance-2.0', { 
-      waitUntil: 'domcontentloaded', 
-      timeout: 60000 
+    await freebeatPage.goto('https://freebeat.ai/it/ai-video-generator?model=seedance-2.0', {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000
     });
 
     await freebeatPage.getByRole('button', { name: 'Accedi' }).first().click({ timeout: 20000 });
@@ -132,7 +142,7 @@ async function automateFreebeat(prompt, durationSeconds, originalMessage, imageP
     // Prompt
     await freebeatPage.getByRole('textbox', { name: 'Descrivi cosa vuoi creare' }).fill(prompt);
 
-    // Upload immagine se presente
+    // Upload immagine
     if (imagePath && fs.existsSync(imagePath)) {
       console.log('📤 Upload immagine...');
       try {
@@ -142,18 +152,19 @@ async function automateFreebeat(prompt, durationSeconds, originalMessage, imageP
         const fileInput = await freebeatPage.locator('input[type="file"]').first();
         await fileInput.setInputFiles(imagePath);
         await freebeatPage.waitForTimeout(4000);
+        console.log('✅ Immagine caricata');
       } catch (e) {
-        console.error('Errore upload:', e);
+        console.error('Errore upload immagine:', e);
       }
     }
 
-    // === DURATA ===
+    // Durata
     await freebeatPage.getByRole('button', { name: '4s' }).click();
     await freebeatPage.getByRole('menuitem', { name: `${durationSeconds}s` }).click().catch(() => {});
 
-    // === VERTICALE 9:16 (se richiesto) ===
+    // Verticale 9:16
     if (isVertical) {
-      console.log('📱 Imposto formato verticale 9:16...');
+      console.log('📱 Imposto formato 9:16...');
       await freebeatPage.waitForTimeout(1500);
       await freebeatPage.getByRole('button', { name: ':9' }).click();
       await freebeatPage.waitForTimeout(800);
@@ -166,6 +177,8 @@ async function automateFreebeat(prompt, durationSeconds, originalMessage, imageP
     await freebeatPage.getByRole('button', { name: 'Crea' }).click();
     await freebeatPage.getByRole('button', { name: 'Ho 18+, continua' }).click().catch(() => {});
 
+    console.log(`⏳ Generazione in corso...`);
+
     // Attesa generazione
     let videoUrl = null;
     const maxWait = 1500000;
@@ -175,7 +188,6 @@ async function automateFreebeat(prompt, durationSeconds, originalMessage, imageP
       try {
         await freebeatPage.locator('div').filter({ hasText: /^In attesa in coda\.$/ }).nth(1).click().catch(() => {});
         await freebeatPage.locator('img').nth(2).click().catch(() => {});
-        await freebeatPage.locator('img.object-cover').click().catch(() => {});
 
         const pageText = await freebeatPage.evaluate(() => document.body.innerText.toLowerCase());
 
@@ -185,7 +197,7 @@ async function automateFreebeat(prompt, durationSeconds, originalMessage, imageP
         }
 
         if (pageText.includes('generazione video fallita') || pageText.includes('generazione fallita')) {
-          await originalMessage.reply('⚠️ Ha violato i termini o superato i limiti.');
+          await originalMessage.reply('⚠️ Ha violato i termini di servizio o superato i limiti del piano.');
           return;
         }
 
@@ -203,15 +215,15 @@ async function automateFreebeat(prompt, durationSeconds, originalMessage, imageP
         }
       } catch (e) {}
 
-      await freebeatPage.waitForTimeout(10000);
+      await freebeatPage.waitForTimeout(12000);
     }
 
-    if (!videoUrl) throw new Error('Timeout: Video non pronto');
+    if (!videoUrl) throw new Error('Video non pronto entro il timeout');
 
     await originalMessage.reply(`✅ Video pronto, guardalo qui:\n${videoUrl}`);
 
   } catch (error) {
-    console.error('❌ Errore:', error);
+    console.error('❌ Errore completo:', error);
     await originalMessage.reply('❌ Errore durante la generazione: ' + error.message).catch(() => {});
   } finally {
     await browser.close().catch(() => {});
