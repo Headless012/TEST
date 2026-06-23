@@ -1,7 +1,8 @@
 FROM node:20
 
-# Installa solo le dipendenze necessarie per Chromium + Playwright
+# Installa XVFB + tutte le dipendenze grafiche necessarie
 RUN apt-get update && apt-get install -y \
+    xvfb \
     libnss3 \
     libatk-bridge2.0-0 \
     libdrm2 \
@@ -11,25 +12,18 @@ RUN apt-get update && apt-get install -y \
     libxrandr2 \
     libgbm1 \
     libasound2 \
+    libxshmfence1 \
     fonts-liberation \
-    libappindicator3-1 \
-    libnspr4 \
-    libgtk-3-0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copia prima i file package per sfruttare la cache Docker
 COPY package*.json ./
-
-# Installa le dipendenze
 RUN npm install --omit=dev
 
-# Installa Chromium di Playwright
 RUN npx playwright install --with-deps chromium
 
-# Copia tutto il codice
 COPY . .
 
-# Comando di avvio
-CMD ["node", "index.js"]
+# Avvia con XVFB (schermo virtuale)
+CMD ["xvfb-run", "-a", "--server-args=-screen 0 1920x1080x24", "node", "index.js"]
